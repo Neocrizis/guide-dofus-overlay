@@ -18,10 +18,17 @@ const HOTE: &str = "neocrizis.github.io";
 /// Clic au travers : la souris passe à travers la fenêtre pour jouer dessous.
 static TRAVERS: AtomicBool = AtomicBool::new(false);
 static DESSUS: AtomicBool = AtomicBool::new(true);
+/// Masquer l'appli quand le jeu n'est pas au premier plan (réglable dans le menu).
+static AUTO_MASQUE: AtomicBool = AtomicBool::new(true);
+/// Masquée à la main (Ctrl+Maj+G ou menu) : le masquage auto ne la réaffiche pas.
+static MASQUE_MANUEL: AtomicBool = AtomicBool::new(false);
+/// Masquée par le masquage auto.
+static MASQUE_AUTO: AtomicBool = AtomicBool::new(false);
 
 struct Menus {
     travers: CheckMenuItem<Wry>,
     dessus: CheckMenuItem<Wry>,
+    auto: CheckMenuItem<Wry>,
 }
 /// Lien de connexion reçu avant que la page soit prête.
 struct LienEnAttente(Mutex<Option<String>>);
@@ -41,10 +48,88 @@ fn montrer(app: &AppHandle) {
 fn basculer_visible(app: &AppHandle) {
     if let Some(w) = journal(app) {
         if w.is_visible().unwrap_or(false) {
+            MASQUE_MANUEL.store(true, Ordering::SeqCst);
             let _ = w.hide();
         } else {
+            MASQUE_MANUEL.store(false, Ordering::SeqCst);
+            MASQUE_AUTO.store(false, Ordering::SeqCst);
             montrer(app);
         }
+    }
+}
+
+/// Premier plan Windows : renvoie (fenêtre, nom de l'exécutable en minuscules, processus).
+#[cfg(windows)]
+fn premier_plan() -> Option<(isize, String, u32)> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 {
+            return None;
+        }
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return Some((hwnd as isize, String::new(), pid));
+        }
+        let mut buf = [0u16; 1024];
+        let mut taille = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut taille);
+        CloseHandle(h);
+        let chemin = if ok != 0 { String::from_utf16_lossy(&buf[..taille as usize]) } else { String::new() };
+        let nom = chemin.rsplit(['\\', '/']).next().unwrap_or("").to_lowercase();
+        Some((hwnd as isize, nom, pid))
+    }
+}
+
+#[cfg(windows)]
+fn fenetre_existe(hwnd: isize) -> bool {
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(hwnd as _) != 0 }
+}
+
+/// Surveille le premier plan : l'appli reste visible quand le jeu (Dofus*.exe) ou l'appli elle-même
+/// est au premier plan, et se cache sinon. Tant que le jeu n'a pas été vu (ou s'il est fermé), rien n'est masqué.
+#[cfg(windows)]
+fn surveiller_jeu(app: AppHandle) {
+    std::thread::spawn(move || {
+        let moi = std::process::id();
+        let mut jeu: Option<isize> = None;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            let Some((hwnd, nom, pid)) = premier_plan() else { continue };
+            let est_jeu = nom.starts_with("dofus") && nom.ends_with(".exe");
+            if est_jeu {
+                jeu = Some(hwnd);
+            }
+            if jeu.is_some_and(|h| !fenetre_existe(h)) {
+                jeu = None; // jeu fermé
+            }
+            let cacher = AUTO_MASQUE.load(Ordering::SeqCst) && jeu.is_some() && !est_jeu && pid != moi;
+            if MASQUE_MANUEL.load(Ordering::SeqCst) {
+                continue;
+            }
+            let Some(w) = journal(&app) else { continue };
+            if cacher && !MASQUE_AUTO.load(Ordering::SeqCst) {
+                MASQUE_AUTO.store(true, Ordering::SeqCst);
+                let _ = w.hide();
+            } else if !cacher && MASQUE_AUTO.load(Ordering::SeqCst) {
+                MASQUE_AUTO.store(false, Ordering::SeqCst);
+                let _ = w.show(); // sans prendre le focus au jeu
+            }
+        }
+    });
+}
+
+fn regler_auto(app: &AppHandle, actif: bool) {
+    AUTO_MASQUE.store(actif, Ordering::SeqCst);
+    if let Some(m) = app.try_state::<Menus>() {
+        let _ = m.auto.set_checked(actif);
     }
 }
 
@@ -92,6 +177,40 @@ fn transmettre_lien(app: &AppHandle, lien: &str) {
     }
 }
 
+/// Mises à jour automatiques : au lancement (puis toutes les 6 h), télécharge la nouvelle version
+/// publiée sur GitHub, l'installe sans fenêtre et relance l'appli.
+fn verifier_maj(app: AppHandle) {
+    use tauri_plugin_updater::UpdaterExt;
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if let Ok(updater) = app.updater() {
+                if let Ok(Some(maj)) = updater.check().await {
+                    if let Some(w) = journal(&app) {
+                        let _ = w.eval(&format!(
+                            "window.GuideDofus?.toast?.('Mise à jour {} en cours…')",
+                            maj.version
+                        ));
+                    }
+                    if maj.download_and_install(|_, _| {}, || {}).await.is_ok() {
+                        app.restart();
+                    }
+                }
+            }
+            tokio_sleep(6 * 3600).await;
+        }
+    });
+}
+
+async fn tokio_sleep(secondes: u64) {
+    let (tx, rx) = tauri::async_runtime::channel::<()>(1);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(secondes));
+        let _ = tx.blocking_send(());
+    });
+    let mut rx = rx;
+    let _ = rx.recv().await;
+}
+
 fn main() {
     let raccourci_visible = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyG);
     let raccourci_travers = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyT);
@@ -106,6 +225,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, raccourci, evenement| {
@@ -181,11 +301,12 @@ fn main() {
             let afficher = MenuItem::with_id(app, "afficher", "Afficher / masquer    Ctrl+Maj+G", true, None::<&str>)?;
             let travers = CheckMenuItem::with_id(app, "travers", "Clic au travers    Ctrl+Maj+T", true, false, None::<&str>)?;
             let dessus = CheckMenuItem::with_id(app, "dessus", "Toujours au premier plan", true, true, None::<&str>)?;
+            let auto = CheckMenuItem::with_id(app, "auto", "Masquer quand le jeu n'est pas au premier plan", true, true, None::<&str>)?;
             let recharger = MenuItem::with_id(app, "recharger", "Recharger le guide", true, None::<&str>)?;
             let quitter = MenuItem::with_id(app, "quitter", "Quitter", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&afficher, &travers, &dessus, &recharger, &sep, &quitter])?;
-            app.manage(Menus { travers: travers.clone(), dessus: dessus.clone() });
+            let menu = Menu::with_items(app, &[&afficher, &travers, &dessus, &auto, &recharger, &sep, &quitter])?;
+            app.manage(Menus { travers: travers.clone(), dessus: dessus.clone(), auto: auto.clone() });
 
             TrayIconBuilder::with_id("guide")
                 .icon(app.default_window_icon().unwrap().clone())
@@ -196,6 +317,7 @@ fn main() {
                     "afficher" => basculer_visible(app),
                     "travers" => regler_travers(app, !TRAVERS.load(Ordering::SeqCst)),
                     "dessus" => regler_dessus(app, !DESSUS.load(Ordering::SeqCst)),
+                    "auto" => regler_auto(app, !AUTO_MASQUE.load(Ordering::SeqCst)),
                     "recharger" => {
                         if let Some(w) = journal(app) {
                             let _ = w.eval("location.reload()");
@@ -213,6 +335,9 @@ fn main() {
 
             app.global_shortcut().register(raccourci_visible)?;
             app.global_shortcut().register(raccourci_travers)?;
+            #[cfg(windows)]
+            surveiller_jeu(handle.clone());
+            verifier_maj(handle.clone());
             Ok(())
         })
         .run(tauri::generate_context!())
