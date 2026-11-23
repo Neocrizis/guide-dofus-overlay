@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "distant",
+  "description": "La page du Guide Dofus (en ligne) peut déplacer et redimensionner la fenêtre.",
+  "windows": ["journal"],
+  "remote": { "urls": ["https://neocrizis.github.io/*"] },
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging"
+  ]
+}

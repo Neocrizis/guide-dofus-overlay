@@ -1,0 +1,37 @@
+# Construit l'appli Windows « Guide Dofus Overlay » (ce dépôt) et publie l'installateur
+# dans les Releases GitHub. Se lance quand l'appli change, ou à la main (onglet Actions).
+name: Appli Windows
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Dépendances
+        run: npm install
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          tagName: v__VERSION__
+          releaseName: "Guide Dofus Overlay v__VERSION__"
+          releaseBody: "Télécharge « Guide.Dofus.Overlay_…_x64-setup.exe » ci-dessous et lance-le. Raccourcis : Ctrl+Maj+G (afficher/masquer), Ctrl+Maj+T (clic au travers). Code signing policy : https://github.com/Neocrizis/guide-dofus-overlay/blob/main/CODE_SIGNING_POLICY.md · Confidentialité : https://github.com/Neocrizis/guide-dofus-overlay/blob/main/PRIVACY.md"
+          releaseDraft: false
+          prerelease: false
