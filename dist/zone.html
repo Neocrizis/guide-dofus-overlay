@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Zone du chat</title>
+<style>
+  html, body { margin: 0; height: 100%; background: rgba(10, 12, 20, .45); cursor: crosshair; user-select: none; overflow: hidden; font-family: system-ui, "Segoe UI", sans-serif; }
+  .aide { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); padding: 12px 18px; border-radius: 12px; background: #1b1f2e; border: 1px solid #f2b84b; color: #fff; font-size: 15px; text-align: center; pointer-events: none; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+  .aide small { display: block; margin-top: 4px; color: rgba(255,255,255,.65); font-size: 12px; }
+  .cadre { position: fixed; border: 2px solid #f2b84b; background: rgba(242, 184, 75, .12); box-shadow: 0 0 0 9999px rgba(0,0,0,.25); display: none; }
+</style>
+</head>
+<body>
+  <div class="aide">Trace un rectangle autour du <b>chat</b> du jeu (les dernières lignes suffisent).<small>Échap pour annuler · la zone est retenue pour les prochaines fois</small></div>
+  <div class="cadre" id="cadre"></div>
+<script>
+  const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
+  const cadre = document.getElementById("cadre");
+  let depart = null;
+  const rect = (a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), l: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) });
+  function dessiner(r) { Object.assign(cadre.style, { display: "block", left: r.x + "px", top: r.y + "px", width: r.l + "px", height: r.h + "px" }); }
+  addEventListener("mousedown", (e) => { if (e.button === 0) { depart = { x: e.clientX, y: e.clientY }; dessiner(rect(depart, depart)); } });
+  addEventListener("mousemove", (e) => { if (depart) dessiner(rect(depart, { x: e.clientX, y: e.clientY })); });
+  addEventListener("mouseup", (e) => {
+    if (!depart) return;
+    const r = rect(depart, { x: e.clientX, y: e.clientY });
+    depart = null;
+    if (r.l < 60 || r.h < 20) { cadre.style.display = "none"; return; }
+    invoke("definir_zone", r);
+  });
+  addEventListener("keydown", (e) => { if (e.key === "Escape") invoke("fermer_zone"); });
+  addEventListener("contextmenu", (e) => e.preventDefault());
+</script>
+</body>
+</html>
