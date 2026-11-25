@@ -12,6 +12,9 @@ comme le journal de quêtes : fenêtre sans cadre, fond transparent réglable, t
 - **Ctrl+Maj+G** : afficher / masquer le journal.
 - **Ctrl+Maj+T** : clic au travers (la souris passe à travers pour jouer dessous) ; recommencer pour revenir.
 - Icône près de l'horloge : les mêmes réglages, « Toujours au premier plan », « Recharger », « Quitter ».
+- **Cocher les quêtes terminées** (menu de l'icône, coupé par défaut) : l'appli lit la zone du chat que tu choisis (« Choisir la zone du chat… »)
+  et coche dans le guide les quêtes terminées et succès déverrouillés. Lecture locale (OCR de Windows), aucune action sur le jeu.
+  Le jeu doit être en mode fenêtré ou fenêtré plein écran, et le chat visible.
 - 👤 : connexion à ton compte Guide Dofus pour synchroniser ta progression avec le site (facultatif).
 
 Pour désinstaller : Paramètres Windows > Applications > Guide Dofus Overlay.

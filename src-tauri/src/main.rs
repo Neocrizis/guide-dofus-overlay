@@ -2,6 +2,8 @@
 // dans une fenêtre sans cadre, transparente et toujours au-dessus du jeu.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ocr;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
@@ -22,6 +24,7 @@ static DESSUS: AtomicBool = AtomicBool::new(true);
 struct Menus {
     travers: CheckMenuItem<Wry>,
     dessus: CheckMenuItem<Wry>,
+    chat: CheckMenuItem<Wry>,
 }
 /// Lien de connexion reçu avant que la page soit prête.
 struct LienEnAttente(Mutex<Option<String>>);
@@ -69,6 +72,72 @@ fn regler_dessus(app: &AppHandle, actif: bool) {
     if let Some(m) = app.try_state::<Menus>() {
         let _ = m.dessus.set_checked(actif);
     }
+}
+
+/// Lecture du chat : marche / arrêt. Sans zone choisie, ouvre d'abord le choix de la zone.
+fn regler_chat(app: &AppHandle, actif: bool) {
+    if actif && ocr::zone().is_none() {
+        ouvrir_zone(app);
+        return;
+    }
+    ocr::regler_actif(app, actif);
+    if let Some(m) = app.try_state::<Menus>() {
+        let _ = m.chat.set_checked(actif);
+    }
+    if let Some(w) = journal(app) {
+        let msg = if actif { "Lecture du chat activée" } else { "Lecture du chat désactivée" };
+        let _ = w.eval(&format!("window.GuideDofus && window.GuideDofus.toast({})", serde_json::to_string(msg).unwrap()));
+    }
+}
+
+/// Fenêtre plein écran, sur l'écran du journal, pour tracer la zone du chat.
+fn ouvrir_zone(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("zone") {
+        let _ = w.set_focus();
+        return;
+    }
+    let ecran = journal(app).and_then(|w| w.current_monitor().ok().flatten());
+    let Ok(w) = WebviewWindowBuilder::new(app, "zone", WebviewUrl::App("zone.html".into()))
+        .title("Zone du chat")
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .visible(false)
+        .build()
+    else {
+        return;
+    };
+    if let Some(e) = ecran {
+        let _ = w.set_position(*e.position());
+        let _ = w.set_size(*e.size());
+    }
+    let _ = w.show();
+    let _ = w.set_focus();
+}
+
+/// Reçoit le rectangle tracé (en pixels de la page) et le convertit en pixels de l'écran.
+#[tauri::command]
+fn definir_zone(window: WebviewWindow, x: f64, y: f64, l: f64, h: f64) {
+    let app = window.app_handle().clone();
+    let echelle = window.scale_factor().unwrap_or(1.0);
+    let origine = window.inner_position().unwrap_or_default();
+    let zone = ocr::Zone {
+        x: origine.x + (x * echelle).round() as i32,
+        y: origine.y + (y * echelle).round() as i32,
+        l: (l * echelle).round() as i32,
+        h: (h * echelle).round() as i32,
+    };
+    let _ = window.close();
+    ocr::regler_zone(&app, zone);
+    regler_chat(&app, true);
+}
+
+#[tauri::command]
+fn fermer_zone(window: WebviewWindow) {
+    let _ = window.close();
 }
 
 /// Transmet un lien guidedofus://auth?code=… à la page, qui termine la connexion au compte.
@@ -121,6 +190,7 @@ fn main() {
                 .build(),
         )
         .manage(LienEnAttente(Mutex::new(None)))
+        .invoke_handler(tauri::generate_handler![definir_zone, fermer_zone])
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -182,10 +252,16 @@ fn main() {
             let travers = CheckMenuItem::with_id(app, "travers", "Clic au travers    Ctrl+Maj+T", true, false, None::<&str>)?;
             let dessus = CheckMenuItem::with_id(app, "dessus", "Toujours au premier plan", true, true, None::<&str>)?;
             let recharger = MenuItem::with_id(app, "recharger", "Recharger le guide", true, None::<&str>)?;
+            // Lecture du chat : coupée par défaut, le joueur l'active lui-même.
+            let chat_actif = ocr::charger(&handle);
+            let chat = CheckMenuItem::with_id(app, "chat", "Cocher les quêtes terminées (lecture du chat)", true, chat_actif, None::<&str>)?;
+            let zone = MenuItem::with_id(app, "zone", "Choisir la zone du chat…", true, None::<&str>)?;
+            let sep_chat = PredefinedMenuItem::separator(app)?;
             let quitter = MenuItem::with_id(app, "quitter", "Quitter", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&afficher, &travers, &dessus, &recharger, &sep, &quitter])?;
-            app.manage(Menus { travers: travers.clone(), dessus: dessus.clone() });
+            let menu = Menu::with_items(app, &[&afficher, &travers, &dessus, &recharger, &sep_chat, &chat, &zone, &sep, &quitter])?;
+            app.manage(Menus { travers: travers.clone(), dessus: dessus.clone(), chat: chat.clone() });
+            ocr::demarrer(handle.clone());
 
             TrayIconBuilder::with_id("guide")
                 .icon(app.default_window_icon().unwrap().clone())
@@ -201,6 +277,8 @@ fn main() {
                             let _ = w.eval("location.reload()");
                         }
                     }
+                    "chat" => regler_chat(app, !ocr::ACTIF.load(Ordering::SeqCst)),
+                    "zone" => ouvrir_zone(app),
                     "quitter" => app.exit(0),
                     _ => {}
                 })
