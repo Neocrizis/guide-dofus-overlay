@@ -64,6 +64,13 @@ fn regler_travers(app: &AppHandle, actif: bool) {
     }
 }
 
+/// Fait avancer (ou reculer) le guide d'une carte.
+fn avancer(app: &AppHandle, sens: i32) {
+    if let Some(w) = journal(app) {
+        let _ = w.eval(&format!("window.GuideDofus && window.GuideDofus.avancer && window.GuideDofus.avancer({sens})"));
+    }
+}
+
 fn regler_dessus(app: &AppHandle, actif: bool) {
     DESSUS.store(actif, Ordering::SeqCst);
     if let Some(w) = journal(app) {
@@ -164,6 +171,9 @@ fn transmettre_lien(app: &AppHandle, lien: &str) {
 fn main() {
     let raccourci_visible = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyG);
     let raccourci_travers = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyT);
+    // Carte suivante / précédente sans quitter le jeu.
+    let raccourci_suivant = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::ArrowRight);
+    let raccourci_precedent = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::ArrowLeft);
 
     tauri::Builder::default()
         // Une seule instance : un lien guidedofus:// ouvert depuis le navigateur arrive dans l'appli déjà lancée.
@@ -185,6 +195,10 @@ fn main() {
                         basculer_visible(app);
                     } else if raccourci == &raccourci_travers {
                         regler_travers(app, !TRAVERS.load(Ordering::SeqCst));
+                    } else if raccourci == &raccourci_suivant {
+                        avancer(app, 1);
+                    } else if raccourci == &raccourci_precedent {
+                        avancer(app, -1);
                     }
                 })
                 .build(),
@@ -252,6 +266,8 @@ fn main() {
             let travers = CheckMenuItem::with_id(app, "travers", "Clic au travers    Ctrl+Maj+T", true, false, None::<&str>)?;
             let dessus = CheckMenuItem::with_id(app, "dessus", "Toujours au premier plan", true, true, None::<&str>)?;
             let recharger = MenuItem::with_id(app, "recharger", "Recharger le guide", true, None::<&str>)?;
+            let suivant = MenuItem::with_id(app, "suivant", "Carte suivante    Ctrl+Maj+→", true, None::<&str>)?;
+            let precedent = MenuItem::with_id(app, "precedent", "Carte précédente    Ctrl+Maj+←", true, None::<&str>)?;
             // Lecture du chat : coupée par défaut, le joueur l'active lui-même.
             let chat_actif = ocr::charger(&handle);
             let chat = CheckMenuItem::with_id(app, "chat", "Cocher les quêtes terminées (lecture du chat)", true, chat_actif, None::<&str>)?;
@@ -259,13 +275,13 @@ fn main() {
             let sep_chat = PredefinedMenuItem::separator(app)?;
             let quitter = MenuItem::with_id(app, "quitter", "Quitter", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&afficher, &travers, &dessus, &recharger, &sep_chat, &chat, &zone, &sep, &quitter])?;
+            let menu = Menu::with_items(app, &[&afficher, &travers, &dessus, &recharger, &suivant, &precedent, &sep_chat, &chat, &zone, &sep, &quitter])?;
             app.manage(Menus { travers: travers.clone(), dessus: dessus.clone(), chat: chat.clone() });
             ocr::demarrer(handle.clone());
 
             TrayIconBuilder::with_id("guide")
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Guide Dofus : Ctrl+Maj+G pour afficher, Ctrl+Maj+T pour le clic au travers")
+                .tooltip("Guide Dofus : Ctrl+Maj+G afficher, Ctrl+Maj+T clic au travers, Ctrl+Maj+→ / ← carte suivante / précédente")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, ev| match ev.id().as_ref() {
@@ -279,6 +295,8 @@ fn main() {
                     }
                     "chat" => regler_chat(app, !ocr::ACTIF.load(Ordering::SeqCst)),
                     "zone" => ouvrir_zone(app),
+                    "suivant" => avancer(app, 1),
+                    "precedent" => avancer(app, -1),
                     "quitter" => app.exit(0),
                     _ => {}
                 })
@@ -291,6 +309,9 @@ fn main() {
 
             app.global_shortcut().register(raccourci_visible)?;
             app.global_shortcut().register(raccourci_travers)?;
+            // Un raccourci déjà pris par une autre appli ne doit pas empêcher le démarrage.
+            let _ = app.global_shortcut().register(raccourci_suivant);
+            let _ = app.global_shortcut().register(raccourci_precedent);
             Ok(())
         })
         .run(tauri::generate_context!())
