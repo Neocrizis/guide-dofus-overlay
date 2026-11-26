@@ -32,6 +32,6 @@ jobs:
           projectPath: .
           tagName: v__VERSION__
           releaseName: "Guide Dofus Overlay v__VERSION__"
-          releaseBody: "Télécharge « Guide.Dofus.Overlay_…_x64-setup.exe » ci-dessous et lance-le. Raccourcis : Ctrl+Maj+G (afficher/masquer), Ctrl+Maj+T (clic au travers). Code signing policy : https://github.com/Neocrizis/guide-dofus-overlay/blob/main/CODE_SIGNING_POLICY.md · Confidentialité : https://github.com/Neocrizis/guide-dofus-overlay/blob/main/PRIVACY.md"
+          releaseBody: "Télécharge « Guide.Dofus.Overlay_…_x64-setup.exe » ci-dessous et lance-le. Raccourcis : Ctrl+Maj+G (afficher/masquer), Ctrl+Maj+T (clic au travers), Ctrl+Maj+→ / ← (carte suivante / précédente). Code signing policy : https://github.com/Neocrizis/guide-dofus-overlay/blob/main/CODE_SIGNING_POLICY.md · Confidentialité : https://github.com/Neocrizis/guide-dofus-overlay/blob/main/PRIVACY.md"
           releaseDraft: false
           prerelease: false

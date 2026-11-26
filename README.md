@@ -11,6 +11,7 @@ comme le journal de quêtes : fenêtre sans cadre, fond transparent réglable, t
 - ◐ : transparence du fond.
 - **Ctrl+Maj+G** : afficher / masquer le journal.
 - **Ctrl+Maj+T** : clic au travers (la souris passe à travers pour jouer dessous) ; recommencer pour revenir.
+- **Ctrl+Maj+→ / Ctrl+Maj+←** : carte suivante / précédente du guide, sans quitter le jeu.
 - Icône près de l'horloge : les mêmes réglages, « Toujours au premier plan », « Recharger », « Quitter ».
 - **Cocher les quêtes terminées** (menu de l'icône, coupé par défaut) : l'appli lit la zone du chat que tu choisis (« Choisir la zone du chat… »)
   et coche dans le guide les quêtes terminées et succès déverrouillés. Lecture locale (OCR de Windows), aucune action sur le jeu.
